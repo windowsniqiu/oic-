@@ -83,18 +83,38 @@ export default function AdminPanel({ onNavigate, onRefreshData, currentSettings,
   // 1. Check if admins already exist in system
   const checkAdminStatus = async () => {
     try {
-      const res = await fetch("/api/admin/check");
-      const data = await res.json();
-      setHasAdmin(data.hasAdmin);
-      // If there is no admin, force registration mode
-      if (!data.hasAdmin) {
+      // Query Firestore directly. This works fully serverlessly on Vercel without relying on the Express API!
+      const adminsColRef = collection(db, "admins");
+      const adminsSnap = await getDocs(adminsColRef);
+      const exists = !adminsSnap.empty;
+      
+      setHasAdmin(exists);
+      if (!exists) {
         setIsRegistering(true);
+      } else {
+        setIsRegistering(false);
       }
     } catch (err) {
-      console.warn("Backend admin check failed (this is expected on static hosts like Vercel). Enabling fallback login/register toggle.", err);
-      // Fallback: assume an admin exists and allow the user to toggle freely
-      setHasAdmin(true);
-      setIsRegistering(false);
+      console.warn("Firestore client-side admin check failed. Trying backend API route as fallback.", err);
+      try {
+        const res = await fetch("/api/admin/check");
+        if (res.ok) {
+          const data = await res.json();
+          setHasAdmin(data.hasAdmin);
+          if (!data.hasAdmin) {
+            setIsRegistering(true);
+          } else {
+            setIsRegistering(false);
+          }
+        } else {
+          throw new Error("API returned non-ok status");
+        }
+      } catch (backendErr) {
+        console.error("Both client-side and backend admin checks failed.", backendErr);
+        // Fallback: assume an admin exists to protect the login gate
+        setHasAdmin(true);
+        setIsRegistering(false);
+      }
     }
   };
 
@@ -464,14 +484,14 @@ export default function AdminPanel({ onNavigate, onRefreshData, currentSettings,
               )}
             </button>
 
-            {hasAdmin && (
+            {!hasAdmin && (
               <div className="text-center pt-2">
                 <button
                   type="button"
                   onClick={() => setIsRegistering(!isRegistering)}
                   className="text-xs text-[#8C7673] hover:underline"
                 >
-                  {isRegistering ? "Back to Login" : "Need to register another Admin?"}
+                  {isRegistering ? "Back to Login" : "Register Admin"}
                 </button>
               </div>
             )}

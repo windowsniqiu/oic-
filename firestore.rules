@@ -23,7 +23,7 @@ service cloud.firestore {
     // Admin Collection
     match /admins/{adminId} {
       // First admin can register, subsequent admin creations require existing admin approval or is owner
-      allow read: if isSignedIn();
+      allow read: if true;
       allow create: if isSignedIn() && request.auth.uid == adminId;
       allow update, delete: if isAdmin() && request.auth.uid == adminId;
     }
