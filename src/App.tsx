@@ -16,6 +16,8 @@ import { DEFAULT_SETTINGS, DEFAULT_POSTS } from "./data";
 import MainBoard from "./components/MainBoard";
 import ScrapbookBoard from "./components/ScrapbookBoard";
 import AdminPanel from "./components/AdminPanel";
+// @ts-expect-error - Vite handles jpg imports, but tsc requires a type declaration
+import websiteFavicon from "./assets/images/website_icon_1784440258524.jpg";
 
 export default function App() {
   const [activePage, setActivePage] = useState<"home" | "scrapbook" | "admin">("home");
@@ -221,7 +223,12 @@ export default function App() {
         link.rel = "icon";
         document.getElementsByTagName("head")[0].appendChild(link);
       }
-      link.href = settings.websiteIconUrl;
+      // If the URL is the default local path, resolve to the compiled image
+      if (settings.websiteIconUrl.includes("website_icon_1784440258524.jpg")) {
+        link.href = websiteFavicon;
+      } else {
+        link.href = settings.websiteIconUrl;
+      }
     }
   }, [settings.websiteIconUrl]);
 
