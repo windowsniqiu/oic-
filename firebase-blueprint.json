@@ -1,0 +1,61 @@
+{
+  "entities": {
+    "Setting": {
+      "title": "Setting",
+      "description": "Global application settings and customizations",
+      "type": "object",
+      "properties": {
+        "title": { "type": "string" },
+        "subtitle": { "type": "string" },
+        "avatarUrl": { "type": "string" },
+        "topHeroGifUrl": { "type": "string" },
+        "bottomCornerGifUrls": { "type": "array" },
+        "activeBottomCornerGifUrl": { "type": "string" },
+        "scrapbookThreeImages": { "type": "array" },
+        "socialLinks": { "type": "array" }
+      },
+      "required": ["title", "subtitle"]
+    },
+    "Post": {
+      "title": "Post",
+      "description": "Scrapbook and Hitorigoto items",
+      "type": "object",
+      "properties": {
+        "title": { "type": "string" },
+        "content": { "type": "string" },
+        "imageUrl": { "type": "string" },
+        "videoUrl": { "type": "string" },
+        "tags": { "type": "array" },
+        "isPinned": { "type": "boolean" },
+        "date": { "type": "string" },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["content", "date", "createdAt"]
+    },
+    "Admin": {
+      "title": "Admin",
+      "description": "Registered administrator",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string" },
+        "email": { "type": "string" },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["uid", "email"]
+    }
+  },
+  "firestore": {
+    "/settings/{settingId}": {
+      "schema": "Setting",
+      "description": "Global configurations and customizations"
+    },
+    "/posts/{postId}": {
+      "schema": "Post",
+      "description": "Post items displayed on Scrapbook board"
+    },
+    "/admins/{adminId}": {
+      "schema": "Admin",
+      "description": "Registered administrators"
+    }
+  }
+}

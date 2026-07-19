@@ -1,0 +1,6 @@
+{
+  "name": "Oicolatcho Note",
+  "description": "こころのえいようざい。もちもち。A beautifully styled Japanese-style personal blog, scrapbook, and monologue board with an administrative panel for easy content management.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
