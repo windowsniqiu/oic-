@@ -16,7 +16,8 @@ import {
   updateDoc, 
   deleteDoc,
   query,
-  orderBy 
+  orderBy,
+  limit
 } from "firebase/firestore";
 import { auth, db } from "../firebase";
 import { Post, Setting } from "../types";
@@ -55,7 +56,10 @@ export default function AdminPanel({ onNavigate, onRefreshData, currentSettings,
     }
     return null;
   });
-  const [hasAdmin, setHasAdmin] = useState<boolean | null>(null); // Checked from server
+  const [hasAdmin, setHasAdmin] = useState<boolean | null>(() => {
+    const cached = localStorage.getItem("oicolatcho_has_admin");
+    return cached === "true" ? true : null;
+  }); // Checked from server
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
@@ -101,15 +105,18 @@ export default function AdminPanel({ onNavigate, onRefreshData, currentSettings,
   // 1. Check if admins already exist in system
   const checkAdminStatus = async () => {
     try {
-      // Query Firestore directly. This works fully serverlessly on Vercel without relying on the Express API!
+      // Query Firestore directly with limit(1) to make the lookup lightning fast!
       const adminsColRef = collection(db, "admins");
-      const adminsSnap = await getDocs(adminsColRef);
+      const q = query(adminsColRef, limit(1));
+      const adminsSnap = await getDocs(q);
       const exists = !adminsSnap.empty;
       
       setHasAdmin(exists);
       if (!exists) {
+        localStorage.removeItem("oicolatcho_has_admin");
         setIsRegistering(true);
       } else {
+        localStorage.setItem("oicolatcho_has_admin", "true");
         setIsRegistering(false);
       }
     } catch (err) {
@@ -120,8 +127,10 @@ export default function AdminPanel({ onNavigate, onRefreshData, currentSettings,
           const data = await res.json();
           setHasAdmin(data.hasAdmin);
           if (!data.hasAdmin) {
+            localStorage.removeItem("oicolatcho_has_admin");
             setIsRegistering(true);
           } else {
+            localStorage.setItem("oicolatcho_has_admin", "true");
             setIsRegistering(false);
           }
         } else {
@@ -173,6 +182,8 @@ export default function AdminPanel({ onNavigate, onRefreshData, currentSettings,
         const loggedUser = { uid: userCredential.user.uid, email: userCredential.user.email };
         setUser(loggedUser);
         localStorage.setItem("oicolatcho_logged_in_user", JSON.stringify(loggedUser));
+        setHasAdmin(true);
+        localStorage.setItem("oicolatcho_has_admin", "true");
         setAuthLoading(false);
         return;
       } catch (authErr: any) {
@@ -198,6 +209,8 @@ export default function AdminPanel({ onNavigate, onRefreshData, currentSettings,
       if (matchedAdmin) {
         setUser(matchedAdmin);
         localStorage.setItem("oicolatcho_logged_in_user", JSON.stringify(matchedAdmin));
+        setHasAdmin(true);
+        localStorage.setItem("oicolatcho_has_admin", "true");
       } else {
         throw new Error("Invalid email or password.");
       }
@@ -248,6 +261,7 @@ export default function AdminPanel({ onNavigate, onRefreshData, currentSettings,
       localStorage.setItem("oicolatcho_logged_in_user", JSON.stringify(loggedUser));
 
       setHasAdmin(true);
+      localStorage.setItem("oicolatcho_has_admin", "true");
       setIsRegistering(false);
     } catch (err: any) {
       console.error("Registration error:", err);
