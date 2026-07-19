@@ -91,9 +91,10 @@ export default function AdminPanel({ onNavigate, onRefreshData, currentSettings,
         setIsRegistering(true);
       }
     } catch (err) {
-      console.error("Error checking admin status:", err);
-      setHasAdmin(false);
-      setIsRegistering(true);
+      console.warn("Backend admin check failed (this is expected on static hosts like Vercel). Enabling fallback login/register toggle.", err);
+      // Fallback: assume an admin exists and allow the user to toggle freely
+      setHasAdmin(true);
+      setIsRegistering(false);
     }
   };
 

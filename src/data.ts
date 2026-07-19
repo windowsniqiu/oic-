@@ -55,7 +55,7 @@ export const DEFAULT_SETTINGS: Setting = {
     }
   ],
   searchPlaceholderName: "Oicolatcho",
-  websiteIconUrl: "/src/assets/images/website_icon_1784440258524.jpg"
+  websiteIconUrl: "/favicon.ico"
 };
 
 export const DEFAULT_POSTS: Post[] = [
