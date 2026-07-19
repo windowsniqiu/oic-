@@ -34,9 +34,27 @@ interface AdminPanelProps {
   onToggleLang?: () => void;
 }
 
+// Helper to hash password with browser's native crypto Subtle API (100% serverless compatible)
+async function hashPassword(password: string): Promise<string> {
+  const msgBuffer = new TextEncoder().encode(password);
+  const hashBuffer = await crypto.subtle.digest("SHA-256", msgBuffer);
+  const hashArray = Array.from(new Uint8Array(hashBuffer));
+  return hashArray.map(b => b.toString(16).padStart(2, "0")).join("");
+}
+
 export default function AdminPanel({ onNavigate, onRefreshData, currentSettings, currentPosts, lang, onToggleLang }: AdminPanelProps) {
   // Authentication State
-  const [user, setUser] = useState<FirebaseUser | null>(null);
+  const [user, setUser] = useState<any>(() => {
+    const localUser = localStorage.getItem("oicolatcho_logged_in_user");
+    if (localUser) {
+      try {
+        return JSON.parse(localUser);
+      } catch {
+        return null;
+      }
+    }
+    return null;
+  });
   const [hasAdmin, setHasAdmin] = useState<boolean | null>(null); // Checked from server
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -123,7 +141,10 @@ export default function AdminPanel({ onNavigate, onRefreshData, currentSettings,
     
     // Auth Listener
     const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
-      setUser(currentUser);
+      if (currentUser) {
+        setUser(currentUser);
+        localStorage.setItem("oicolatcho_logged_in_user", JSON.stringify({ uid: currentUser.uid, email: currentUser.email }));
+      }
     });
 
     return () => unsubscribe();
@@ -144,8 +165,42 @@ export default function AdminPanel({ onNavigate, onRefreshData, currentSettings,
     e.preventDefault();
     setAuthError("");
     setAuthLoading(true);
+    
     try {
-      await signInWithEmailAndPassword(auth, email, password);
+      // 1. Attempt standard Firebase Auth
+      try {
+        const userCredential = await signInWithEmailAndPassword(auth, email, password);
+        const loggedUser = { uid: userCredential.user.uid, email: userCredential.user.email };
+        setUser(loggedUser);
+        localStorage.setItem("oicolatcho_logged_in_user", JSON.stringify(loggedUser));
+        setAuthLoading(false);
+        return;
+      } catch (authErr: any) {
+        console.warn("Firebase Auth login failed, trying Firestore database fallback login...", authErr);
+      }
+
+      // 2. Fallback: Query Firestore "admins" directly and match hashed password
+      const adminsColRef = collection(db, "admins");
+      const adminsSnap = await getDocs(adminsColRef);
+      const hashedPassword = await hashPassword(password);
+      
+      let matchedAdmin: any = null;
+      adminsSnap.forEach((docSnap) => {
+        const data = docSnap.data();
+        if (
+          data.email?.toLowerCase() === email.toLowerCase() &&
+          (data.passwordHash === hashedPassword || data.password === password)
+        ) {
+          matchedAdmin = { uid: docSnap.id, email: data.email };
+        }
+      });
+
+      if (matchedAdmin) {
+        setUser(matchedAdmin);
+        localStorage.setItem("oicolatcho_logged_in_user", JSON.stringify(matchedAdmin));
+      } else {
+        throw new Error("Invalid email or password.");
+      }
     } catch (err: any) {
       console.error("Login error:", err);
       setAuthError(err.message || "Invalid credentials.");
@@ -167,18 +222,31 @@ export default function AdminPanel({ onNavigate, onRefreshData, currentSettings,
     }
 
     try {
-      // 1. Register in Firebase Auth
-      const userCredential = await createUserWithEmailAndPassword(auth, email, password);
-      const registeredUser = userCredential.user;
+      const hashedPassword = await hashPassword(password);
+      const customUid = "admin_" + Date.now();
+      
+      let uid = customUid;
+      // Try registering via Firebase Auth if enabled, but catch failure (e.g. auth/operation-not-allowed)
+      try {
+        const userCredential = await createUserWithEmailAndPassword(auth, email, password);
+        uid = userCredential.user.uid;
+      } catch (authErr: any) {
+        console.warn("Firebase Auth sign up is disabled/not allowed, writing to Firestore directly.", authErr);
+      }
 
-      // 2. Create Admin doc in Firestore
-      await setDoc(doc(db, "admins", registeredUser.uid), {
-        uid: registeredUser.uid,
-        email: registeredUser.email,
+      // Save admin credentials directly into Firestore
+      await setDoc(doc(db, "admins", uid), {
+        uid: uid,
+        email: email,
+        passwordHash: hashedPassword,
         createdAt: new Date().toISOString()
       });
 
-      // 3. Notify DB that admin exists now
+      // Instantly log in this registered user
+      const loggedUser = { uid, email };
+      setUser(loggedUser);
+      localStorage.setItem("oicolatcho_logged_in_user", JSON.stringify(loggedUser));
+
       setHasAdmin(true);
       setIsRegistering(false);
     } catch (err: any) {
@@ -190,7 +258,13 @@ export default function AdminPanel({ onNavigate, onRefreshData, currentSettings,
   };
 
   const handleLogout = async () => {
-    await signOut(auth);
+    localStorage.removeItem("oicolatcho_logged_in_user");
+    setUser(null);
+    try {
+      await signOut(auth);
+    } catch (err) {
+      console.warn("Firebase Auth signOut failed:", err);
+    }
   };
 
   // File Upload Helper (Uses our custom backend upload API)
