@@ -207,8 +207,43 @@ export default function AdminPanel({ onNavigate, onRefreshData, currentSettings,
       });
 
       if (matchedAdmin) {
-        setUser(matchedAdmin);
-        localStorage.setItem("oicolatcho_logged_in_user", JSON.stringify(matchedAdmin));
+        // Since they enabled Firebase Auth, let's try to upgrade/heal their session on-the-fly!
+        let finalUser = matchedAdmin;
+        try {
+          // Attempt to create a real user in Firebase Auth with these credentials
+          const userCredential = await createUserWithEmailAndPassword(auth, email, password);
+          const realUid = userCredential.user.uid;
+          
+          // Copy/recreate their admin doc under the real UID
+          await setDoc(doc(db, "admins", realUid), {
+            uid: realUid,
+            email: email,
+            passwordHash: hashedPassword,
+            createdAt: new Date().toISOString()
+          });
+
+          // Delete the old fallback doc with custom ID if it's different
+          if (matchedAdmin.uid !== realUid) {
+            try {
+              await deleteDoc(doc(db, "admins", matchedAdmin.uid));
+            } catch (delErr) {
+              console.warn("Could not delete old fallback admin doc:", delErr);
+            }
+          }
+
+          finalUser = { uid: realUid, email: email };
+        } catch (upgradeErr: any) {
+          console.warn("Could not auto-register fallback admin in Firebase Auth (might already exist or signup is disabled). Trying sign in...", upgradeErr);
+          try {
+            const userCredential = await signInWithEmailAndPassword(auth, email, password);
+            finalUser = { uid: userCredential.user.uid, email: userCredential.user.email };
+          } catch (signInErr) {
+            console.warn("Sign in also failed. Using fallback user state.", signInErr);
+          }
+        }
+
+        setUser(finalUser);
+        localStorage.setItem("oicolatcho_logged_in_user", JSON.stringify(finalUser));
         setHasAdmin(true);
         localStorage.setItem("oicolatcho_has_admin", "true");
       } else {
@@ -281,25 +316,49 @@ export default function AdminPanel({ onNavigate, onRefreshData, currentSettings,
     }
   };
 
-  // File Upload Helper (Uses our custom backend upload API)
+  // File Upload Helper (Uses our custom backend upload API with safe client-side Base64 fallback)
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>, fieldKey: string) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
     setUploadProgress(prev => ({ ...prev, [fieldKey]: true }));
     try {
-      const formData = new FormData();
-      formData.append("file", file);
+      let uploadedUrl = "";
+      try {
+        const formData = new FormData();
+        formData.append("file", file);
 
-      const res = await fetch("/api/upload", {
-        method: "POST",
-        body: formData,
-      });
+        const res = await fetch("/api/upload", {
+          method: "POST",
+          body: formData,
+        });
 
-      if (!res.ok) throw new Error("Upload failed");
+        if (res.ok) {
+          const data = await res.json();
+          uploadedUrl = data.url;
+        } else {
+          throw new Error("Server upload endpoint returned non-OK status");
+        }
+      } catch (apiErr) {
+        console.warn("Backend API upload failed, falling back to client-side Base64 URL...", apiErr);
+        // Fallback: convert file to Base64 data URL
+        uploadedUrl = await new Promise<string>((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onload = () => {
+            if (typeof reader.result === "string") {
+              resolve(reader.result);
+            } else {
+              reject(new Error("Failed to read file as data URL"));
+            }
+          };
+          reader.onerror = (err) => reject(err);
+          reader.readAsDataURL(file);
+        });
+      }
 
-      const data = await res.json();
-      const uploadedUrl = data.url;
+      if (!uploadedUrl) {
+        throw new Error("No URL generated for upload.");
+      }
 
       // Update forms based on target fields
       if (fieldKey === "avatar") {
@@ -606,6 +665,19 @@ export default function AdminPanel({ onNavigate, onRefreshData, currentSettings,
             管理面板 (Administration Panel)
           </h1>
           <p className="text-xs text-gray-500 font-mono mt-0.5">Logged in as: {user.email}</p>
+          {user && !auth.currentUser && (
+            <div className="mt-4 p-4 bg-amber-50 border border-amber-100 text-amber-800 rounded-2xl text-xs space-y-1.5 max-w-2xl">
+              <p className="font-bold flex items-center gap-1.5 text-amber-900">
+                <span>⚠️ 本地临时管理模式 (Local Backup Mode)</span>
+              </p>
+              <p className="leading-relaxed">
+                检测到您当前使用本地紧急备用凭证登录（Firebase Auth 尚未同步）。由于您已经在 Firebase Console 中<strong>【都打开了】</strong>Email/Password 登录选项，<strong>请在右侧点击“安全登出（Log Out）”并重新输入账号密码登录</strong>。
+              </p>
+              <p className="leading-relaxed font-semibold text-amber-900">
+                重新登录后，系统会自动为您完成云端权限关联并升级账号，即可完美支持创建、删除和上传媒体资产！
+              </p>
+            </div>
+          )}
         </div>
 
         <button
